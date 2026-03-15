@@ -1,0 +1,224 @@
+.TH JOB_SCRAPER 1 "2026-03-15" "1.0" "Cybersecurity Job Tools"
+.SH NAME
+job_scraper \- scrape and filter cybersecurity/IT job listings from LinkedIn
+.SH SYNOPSIS
+.nf
+.B python3 job_scraper.py [\-\-location \fILOCATION\fR] [\-\-max-per-term \fIN\fR]
+.B                        [\-\-delay \fISECONDS\fR] [\-\-no-verify]
+.B                        [\-\-output \fIPATH\fR] [\-\-json \fIPATH\fR]
+.fi
+.PP
+Or as a Python module:
+.PP
+.nf
+.B from job_scraper import JobScraper, verify_jobs, save_to_csv
+
+scraper = JobScraper(location=\fILOCATION\fR, delay=\fISECONDS\fR)
+jobs    = scraper.search(terms=\fILIST\fR, max_per_term=\fIN\fR)
+jobs    = verify_jobs(jobs, scraper.session)
+save_to_csv(jobs, path=\fIPATH\fR)
+.fi
+.SH DESCRIPTION
+\fBjob_scraper\fR scrapes cybersecurity and IT job listings from LinkedIn
+and applies heuristic analysis to filter out fake, scam, or low-quality
+postings.
+.PP
+An optional second-pass verification step checks each listing for
+active/closed status and searches DuckDuckGo for a matching company careers
+page, producing a priority-ranked output suitable for a focused job search.
+.SH OPTIONS
+.TP
+.BI "\-\-location " LOCATION
+City and state to filter listings by.
+Default: \fB"Salt Lake City, UT"\fR.
+.TP
+.BI "\-\-max-per-term " N
+Maximum number of results to collect per search term. Default: \fB25\fR.
+.TP
+.BI "\-\-delay " SECONDS
+Seconds to sleep between requests. Increase to reduce rate-limiting risk.
+Default: \fB2.0\fR.
+.TP
+.B \-\-no-verify
+Skip the verification pass. Faster, but jobs will not be status-ranked.
+.TP
+.BI "\-\-output " PATH
+CSV output path. Default: \fBjobs.csv\fR.
+.TP
+.BI "\-\-json " PATH
+Also save results as JSON to this path. Optional.
+.SH DATA MODEL
+All results are returned as \fBJob\fR dataclass instances with the following fields:
+.TP
+.B title
+Job title as shown in the listing.
+.TP
+.B company
+Hiring company name.
+.TP
+.B location
+Job location extracted from the listing.
+.TP
+.B snippet
+Benefit text from the search card. Often empty for LinkedIn results, which
+do not expose full descriptions in static HTML.
+.TP
+.B url
+Direct link to the job listing.
+.TP
+.B salary
+Salary range if shown in the search card; \fBNone\fR otherwise.
+.TP
+.B posted
+Posting date string or ISO date if available; \fBNone\fR otherwise.
+.TP
+.B is_fake
+\fBTrue\fR if the fake-job detector flagged this listing.
+.TP
+.B fake_reasons
+List of strings describing each flag that was raised.
+.TP
+.B status
+Verification status assigned by \fBverify_jobs()\fR. One of \fBGolden\fR,
+\fBActive\fR, \fBUnknown\fR, or \fBLikely Closed\fR. Defaults to \fBUnknown\fR
+before verification is run.
+.TP
+.B company_url
+URL of the job on the company's own careers site, if found during
+verification; \fBNone\fR otherwise.
+.SH CLASSES
+.SS JobScraper
+.TP
+.BI "JobScraper(location=" "\"Salt Lake City, UT\"" ", delay=" "2.0" ", session=" "None" ")"
+Initialise the scraper.
+.RS
+.TP
+.B location
+City and state to filter listings by.
+.TP
+.B delay
+Seconds to sleep between paginated requests.
+.TP
+.B session
+Optional \fBrequests.Session\fR to reuse. A new session is created if not provided.
+.RE
+.TP
+.BI "search(terms=" "None" ", max_per_term=" "25" ")"
+Run searches for each term and return deduplicated jobs that passed the
+fake-job filter. Returns a \fBlist[Job]\fR.
+.TP
+.BI "search_raw(terms=" "None" ", max_per_term=" "25" ")"
+Identical to \fBsearch()\fR but returns all collected jobs including those
+flagged as fake. Useful for auditing the filter's decisions.
+.SH FUNCTIONS
+.TP
+.BI "detect_fake(job)"
+Analyse a single \fBJob\fR and return a \fB(is_fake, reasons)\fR tuple.
+.TP
+.BI "verify_jobs(jobs, session, delay=" "2.0" ")"
+Second-pass verification. For each job:
+.RS
+.IP 1. 3
+Fetches the LinkedIn listing URL to check for 404 or closed-job language.
+.IP 2. 3
+If active, queries DuckDuckGo for the job title and company on non-aggregator
+sites. A hit sets \fBstatus = "Golden"\fR and populates \fBcompany_url\fR.
+.PP
+Mutates \fBjob.status\fR and \fBjob.company_url\fR in place and returns the
+same list.
+.RE
+.TP
+.BI "save_to_csv(jobs, path=" "\"jobs.csv\"" ")"
+Write jobs to a CSV file. Rows sorted \fBGolden \(-> Active \(-> Unknown \(->
+Likely Closed\fR. The \fBfake_reasons\fR list is joined with \fB" | "\fR.
+.SH DEFAULT SEARCH TERMS
+When no \fIterms\fR argument is supplied, the following queries are used:
+.PP
+.RS
+cybersecurity, information security analyst, penetration tester, SOC analyst,
+network security engineer, IT support, systems administrator, cloud security
+engineer, DevSecOps
+.RE
+.SH VERIFICATION STATUSES
+.TP
+.B Golden
+LinkedIn listing is active \fIand\fR a matching listing was found on the
+company's own careers site. Highest-confidence leads.
+.TP
+.B Active
+LinkedIn listing is active but no independent company careers URL was found.
+.TP
+.B Unknown
+The LinkedIn page could not be fetched or returned an unexpected response.
+.TP
+.B Likely Closed
+The LinkedIn listing returned 404 or contained closed-job language.
+.SH FAKE-JOB DETECTION SIGNALS
+The following conditions each add an entry to \fBfake_reasons\fR:
+.PP
+.RS
+\(bu Phrases: unlimited earning/income, be your own boss, work from anywhere,
+financial freedom, passive income, MLM/multi-level marketing/network marketing,
+commission-only, no experience necessary/required, earn $NNN+ per day/week,
+set your own hours/schedule, pyramid, Amway, Primerica, Cutco, Vector
+Marketing, Herbalife, Aviator, 1099 contractor
+.PP
+\(bu Company name matches: independent business owner, self-employed, your own
+business
+.PP
+\(bu Title matches: life insurance sales/agent, insurance sales agent, financial
+advisor/representative, sales representative (commission), recruitment
+consultant (commission)
+.PP
+\(bu Snippet present but shorter than 60 characters
+.PP
+\(bu Company name is empty, "Confidential", or "Undisclosed"
+.RE
+.SH EXAMPLES
+Default run — LinkedIn, Salt Lake City, full verify, saves to jobs.csv:
+.PP
+.RS
+.nf
+python3 job_scraper.py
+.fi
+.RE
+.PP
+Quick scrape, no verify, different city:
+.PP
+.RS
+.nf
+python3 job_scraper.py \-\-location "Austin, TX" \-\-no-verify
+.fi
+.RE
+.PP
+Save both CSV and JSON with a longer delay:
+.PP
+.RS
+.nf
+python3 job_scraper.py \-\-delay 3.0 \-\-output jobs.csv \-\-json jobs.json
+.fi
+.RE
+.PP
+Fast test run (5 results per term, no verify):
+.PP
+.RS
+.nf
+python3 job_scraper.py \-\-max-per-term 5 \-\-no-verify
+.fi
+.RE
+.SH NOTES
+LinkedIn's public job search pages are rendered client-side; the static HTML
+returned by a plain HTTP request does not include job description text. As a
+result, the \fBsnippet\fR field is often empty for LinkedIn results and
+snippet-based fake-job heuristics may not fire.
+.PP
+LinkedIn may rate-limit or block requests. Increasing \fB\-\-delay\fR reduces
+this risk.
+.PP
+\fBverify_jobs()\fR makes two HTTP requests per active job (one LinkedIn
+check, one DuckDuckGo search). On large result sets this can take several
+minutes.
+.SH DEPENDENCIES
+.B requests, beautifulsoup4, lxml
+.SH AUTHOR
+B0bTheSkull

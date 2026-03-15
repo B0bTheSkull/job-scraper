@@ -1,0 +1,23 @@
+# Python
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+
+# Virtual environment
+.venv/
+venv/
+env/
+
+# Output files
+*.csv
+*.json
+
+# Test cache
+.pytest_cache/
+
+# Editor / OS junk
+.~lock.*
+*.swp
+*.swo
+.DS_Store
